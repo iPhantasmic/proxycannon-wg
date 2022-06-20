@@ -3,6 +3,7 @@
 import boto3
 import sys
 import os
+import subprocess
 import argparse
 import datetime
 import time
@@ -297,12 +298,29 @@ def del_routes(nodes: list):
 
 
 def main():
+    """Entrypoint and IP rotation logic"""
     global ec2_conn
     global security_group_id
     global exit_nodes
     global new_exit_nodes
 
     # check if IP forwarding and FIB multi-path routing is enabled, else exit()
+    result = subprocess.run(["cat", "/proc/sys/net/ipv4/ip_forward"], stdout=subprocess.PIPE).stdout.decode("utf-8")
+    if result != "1\n":
+        warning("IPv4 Forwarding not enabled!!! Enabling now...")
+        os.system("echo 'net.ipv4.ip_forward = 1' | sudo tee -a /etc/sysctl.conf")
+        os.system("sudo sysctl -p")
+        debug("IPv4 Forwarding has been enabled!")
+    else:
+        success("IPv4 Forwarding is already enabled!")
+
+    result = subprocess.run(["cat", "/proc/sys/net/ipv4/fib_multipath_hash_policy"], stdout=subprocess.PIPE).stdout.decode("utf-8")
+    if result != "1\n":
+        warning("fib_multipath_hash_policy not enabled!!! Enabling now...")
+        os.system("sudo sysctl -w net.ipv4.fib_multipath_hash_policy=1")
+        debug("fib_multipath_hash_policy has been enabled!")
+    else:
+        success("fib_multipath_hash_policy is already enabled!")
 
     ec2_conn = connect_to_ec2()
     security_group_id = create_sec_group()
