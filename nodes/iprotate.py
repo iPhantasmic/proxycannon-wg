@@ -147,6 +147,43 @@ else:
     error("AWS credential file does not exist")
     exit()
 
+# Check if IP forwarding is enabled
+result = subprocess.run(["cat", "/proc/sys/net/ipv4/ip_forward"], stdout=subprocess.PIPE).stdout.decode("utf-8")
+if result != "1\n":
+    warning("IPv4 Forwarding not enabled!!! Enabling now...")
+    os.system("echo 'net.ipv4.ip_forward = 1' | sudo tee -a /etc/sysctl.conf")
+    os.system("sudo sysctl -p")
+    debug("IPv4 Forwarding has been enabled!")
+else:
+    success("IPv4 Forwarding is already enabled!")
+
+# Check if fib_multipath_hash_policy is enabled
+result = subprocess.run(["cat", "/proc/sys/net/ipv4/fib_multipath_hash_policy"], stdout=subprocess.PIPE).stdout.decode("utf-8")
+if result != "1\n":
+    warning("fib_multipath_hash_policy not enabled!!! Enabling now...")
+    os.system("sudo sysctl -w net.ipv4.fib_multipath_hash_policy=1")
+    debug("fib_multipath_hash_policy has been enabled!")
+else:
+    success("fib_multipath_hash_policy is already enabled!")
+
+# Check if loadb table is used
+result = subprocess.run(["ip", "rule"], stdout=subprocess.PIPE).stdout.decode("utf-8")
+if result.find("from 10.10.10.0/24 lookup loadb") == -1:
+    warning("WireGuard subnet does not use loadb routing table!!! Adding now...")
+    os.system("sudo ip rule add from 10.10.10.0/24 table loadb")
+    debug("Added ip rule!")
+else:
+    success("loadb already used by WireGuard subnet!")
+
+# Check if SNAT from eth0 is enabled
+result = subprocess.run(["sudo", "iptables", "-t", "nat", "-S", "POSTROUTING"], stdout=subprocess.PIPE).stdout.decode("utf-8")
+if result.find("-A POSTROUTING -o eth0 -j MASQUERADE") == -1:
+    warning("SNAT routing not enabled!!! Adding now...")
+    os.system("sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE")
+    debug("SNAT from eth0 has been enabled!")
+else:
+    success("SNAT routing is already enabled!")
+
 # Define SIGINT Handler
 signal.signal(signal.SIGINT, cleanup)
 
@@ -211,18 +248,22 @@ def create_exit_nodes(num: int) -> list:
     global security_group_id
     global subnet_id
 
+    reservations = None
     # creates instances with node setup script in UserData
-    reservations = ec2_conn.run_instances(
-        ImageId=args.image_id,
-        MinCount=num,
-        MaxCount=num,
-        InstanceType=args.image_type,
-        KeyName=keyName,
-        SecurityGroupIds=[security_group_id],
-        SubnetId=subnet_id,
-        TagSpecifications=[{'ResourceType': 'instance', 'Tags': [{'Key': 'Name', "Value": "exit-node"}]}],
-        UserData="#!/bin/bash\nsudo sysctl -w net.ipv4.ip_forward=1\nsudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE"
-    )
+    try:
+        reservations = ec2_conn.run_instances(
+            ImageId=args.image_id,
+            MinCount=num,
+            MaxCount=num,
+            InstanceType=args.image_type,
+            KeyName=keyName,
+            SecurityGroupIds=[security_group_id],
+            SubnetId=subnet_id,
+            TagSpecifications=[{'ResourceType': 'instance', 'Tags': [{'Key': 'Name', "Value": "exit-node"}]}],
+            UserData="#!/bin/bash\nsudo sysctl -w net.ipv4.ip_forward=1\nsudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE"
+        )
+    except Exception as e:
+        error("Creation of EC2 instances failed because: %s" % e)
 
     instances = reservations["Instances"]
     instance_ids = list()
@@ -231,7 +272,7 @@ def create_exit_nodes(num: int) -> list:
         try:
             # Set SourceDestCheck to False for Exit Nodes to route packets properly
             ec2_conn.modify_instance_attribute(InstanceId=instance['InstanceId'], SourceDestCheck={'Value': False})
-            success("Successfully set SourceDestCheck to False for Exit Nodes!")
+            success("Successfully set SourceDestCheck to False for Exit Node: %s" % instance["InstanceId"])
         except Exception as e:
             error("Setting SourceDestCheck to False for %s failed because: %s" % (instance["InstanceId"], e))
 
@@ -261,7 +302,7 @@ def terminate_exit_nodes(nodes: list):
     debug("Terminating the following instances: " + str(instance_ids))
     try:
         response = ec2_conn.terminate_instances(InstanceIds=instance_ids)
-        success("Instances have been terminated!")
+        success("Instances are terminating!")
     except Exception as e:
         error("Terminating instances failed because: %s. Consider terminating manually!" % e)
 
@@ -304,24 +345,6 @@ def main():
     global exit_nodes
     global new_exit_nodes
 
-    # check if IP forwarding and FIB multi-path routing is enabled, else exit()
-    result = subprocess.run(["cat", "/proc/sys/net/ipv4/ip_forward"], stdout=subprocess.PIPE).stdout.decode("utf-8")
-    if result != "1\n":
-        warning("IPv4 Forwarding not enabled!!! Enabling now...")
-        os.system("echo 'net.ipv4.ip_forward = 1' | sudo tee -a /etc/sysctl.conf")
-        os.system("sudo sysctl -p")
-        debug("IPv4 Forwarding has been enabled!")
-    else:
-        success("IPv4 Forwarding is already enabled!")
-
-    result = subprocess.run(["cat", "/proc/sys/net/ipv4/fib_multipath_hash_policy"], stdout=subprocess.PIPE).stdout.decode("utf-8")
-    if result != "1\n":
-        warning("fib_multipath_hash_policy not enabled!!! Enabling now...")
-        os.system("sudo sysctl -w net.ipv4.fib_multipath_hash_policy=1")
-        debug("fib_multipath_hash_policy has been enabled!")
-    else:
-        success("fib_multipath_hash_policy is already enabled!")
-
     ec2_conn = connect_to_ec2()
     security_group_id = create_sec_group()
     exit_nodes = create_exit_nodes(args.num_of_instances)
@@ -332,6 +355,8 @@ def main():
             exit()
         # sleeps for specified minutes before next IP set rotation
         time.sleep(args.i * 60)
+        if not isRunning:
+            exit()
         debug("Starting an IP rotation now!")
         new_exit_nodes = create_exit_nodes(args.num_of_instances)
         # once new nodes ready (ensure minimal downtime):
