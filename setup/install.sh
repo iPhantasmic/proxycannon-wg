@@ -8,13 +8,8 @@
 # update and install deps
 apt update
 # apt -y upgrade
-apt -y install unzip git wireguard
-
-# install terraform
-wget -qO - terraform.gpg https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/terraform-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/terraform-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/terraform.list
-apt update
-apt -y install terraform=1.2.2
+apt -y install unzip git wireguard python3-pip awscli
+pip3 install boto3
 
 # create directory for our aws credentials
 mkdir /home/$SUDO_USER/.aws
@@ -26,14 +21,6 @@ aws_secret_access_key = REPLACE_WITH_YOUR_OWN
 region = ap-southeast-1
 EOF
 chown -R $SUDO_USER:$SUDO_USER /home/$SUDO_USER/.aws
-
-
-################
-# update subnet id in variables.tf
-################
-MAC=`curl http://169.254.169.254/latest/meta-data/network/interfaces/macs/`
-SUBNETID=`curl http://169.254.169.254/latest/meta-data/network/interfaces/macs/$MAC/subnet-id`
-sed -i "s/subnet-XXXXXXXX/$SUBNETID/" ../nodes/aws/variables.tf
 
 
 ################
@@ -102,8 +89,5 @@ echo
 echo "####################### WireGuard Client Config [client.conf] ################################"
 cat ./configs/client.conf
 
-echo "####################### Be sure to add your AWS API keys and SSH keys to the following locations ###################"
-echo "[!] copy your aws ssh private key to ~/.ssh/proxycannon.pem and chmod 600"
+echo "####################### Be sure to add your AWS API keys ###################"
 echo "[!] place your aws api id and key in ~/.aws/credentials"
-
-echo "[!] remember to run 'terraform init' in the nodes/aws on first use"
