@@ -21,8 +21,8 @@ if sys.version_info.major != 3 or sys.version_info.minor < 7:
 ########################################################################################################################
 # Data structure for list of exit_nodes
 # exit_nodes[exit_node_id] = {'cloud_id': instance.id, 'pub_ip': instance.ip_address, 'priv_ip': instance.priv_ip_addr}
-exit_nodes = {}
-new_exit_nodes = {}
+exit_nodes = []
+new_exit_nodes = []
 
 # AWS Resource Definitions
 name = "exit-node"
@@ -62,7 +62,7 @@ def debug(msg):
 ########################################################################################################################
 # Handle SIGINT & Teardown
 ########################################################################################################################
-def cleanup(proxy=None, cannon=None):
+def cleanup():
     global exit_nodes
     global ec2_conn
     global security_group_id
@@ -178,7 +178,7 @@ else:
 # Check if SNAT from eth0 is enabled
 result = subprocess.run(["sudo", "iptables", "-t", "nat", "-S", "POSTROUTING"], stdout=subprocess.PIPE).stdout.decode("utf-8")
 if result.find("-A POSTROUTING -o eth0 -j MASQUERADE") == -1:
-    warning("SNAT routing not enabled!!! Adding now...")
+    warning("SNAT routing not enabled!!! Enabling now...")
     os.system("sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE")
     debug("SNAT from eth0 has been enabled!")
 else:
