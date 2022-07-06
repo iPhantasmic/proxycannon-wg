@@ -2,13 +2,13 @@
 # proxycannon-wg
 
 
-###################
-# install software
-###################
+######################
+# install dependencies
+######################
 # update and install deps
 apt update
 # apt -y upgrade
-apt -y install unzip git wireguard python3-pip awscli
+apt -y install git wireguard python3-pip awscli
 pip3 install boto3
 
 # create directory for our aws credentials
@@ -27,7 +27,7 @@ chown -R $SUDO_USER:$SUDO_USER /home/$SUDO_USER/.aws
 # setup wireguard
 ################
 # copy wg server config
-cp ./configs/server.conf /etc/wireguard/wg0.conf
+cp ./configs/aws_server.conf /etc/wireguard/wg0.conf
 
 # generate server keypair
 wg genkey | sudo tee /etc/wireguard/server.key
@@ -47,12 +47,12 @@ sed -i "s|SERVER_PRIV_KEY|$SERVER_PRIV_KEY|" /etc/wireguard/wg0.conf
 sed -i "s|CLIENT_PUB_KEY|$CLIENT_PUB_KEY|" /etc/wireguard/wg0.conf
 
 # update client config with keypair
-sed -i "s|SERVER_PUB_KEY|$SERVER_PUB_KEY|" ./configs/client.conf
-sed -i "s|CLIENT_PRIV_KEY|$CLIENT_PRIV_KEY|" ./configs/client.conf
+sed -i "s|SERVER_PUB_KEY|$SERVER_PUB_KEY|" ./configs/aws.conf
+sed -i "s|CLIENT_PRIV_KEY|$CLIENT_PRIV_KEY|" ./configs/aws.conf
 
 # update client config with remote IP of control-server and keypair
 EIP=`curl -s http://169.254.169.254/latest/meta-data/public-ipv4`
-sed -i "s|SERVER_PUB_IP|$EIP|" ./configs/client.conf
+sed -i "s|SERVER_PUB_IP|$EIP|" ./configs/aws.conf
 
 
 ###################
@@ -86,8 +86,8 @@ echo "You can run the following command to download the file to your workstation
 echo 
 echo "scp -i proxycannon.pem ubuntu@$EIP:/home/ubuntu/proxycannon-wg/setup/configs/client.conf ."
 echo 
-echo "####################### WireGuard Client Config [client.conf] ################################"
-cat ./configs/client.conf
+echo "####################### WireGuard Client Config [aws.conf] ################################"
+cat ./configs/aws.conf
 
 echo "####################### Be sure to add your AWS API keys ###################"
 echo "[!] place your aws api id and key in ~/.aws/credentials"
