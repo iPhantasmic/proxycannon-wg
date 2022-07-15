@@ -40,7 +40,7 @@ sed -i "s|SERVER_PUB_KEY|$SERVER_PUB_KEY|" ./configs/gcp.conf
 sed -i "s|CLIENT_PRIV_KEY|$CLIENT_PRIV_KEY|" ./configs/gcp.conf
 
 # update client config with remote IP of control-server and keypair
-EIP=`curl -H "Metadata-Flavor: Google" http://metadata/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-i`
+EIP=`curl -H "Metadata-Flavor: Google" http://metadata/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip`
 sed -i "s|SERVER_PUB_IP|$EIP|" ./configs/gcp.conf
 
 
@@ -58,8 +58,8 @@ sysctl -w net.ipv4.fib_multipath_hash_policy=1
 echo "50      loadb" >> /etc/iproute2/rt_tables
 
 # set rule for WireGuard client source network to use the second routing table
-ip rule add from 10.10.10.0/24 table loadb
-# always snat from eth0
+ip rule add from 10.10.20.0/24 table loadb
+# always snat from ens4
 iptables -t nat -A POSTROUTING -o ens4 -j MASQUERADE
 
 # start service
@@ -77,6 +77,3 @@ echo "scp -i proxycannon.pem ubuntu@$EIP:/home/ubuntu/proxycannon-wg/setup/confi
 echo 
 echo "####################### WireGuard Client Config [gcp.conf] ################################"
 cat ./configs/gcp.conf
-
-echo "####################### Be sure to add your AWS API keys ###################"
-echo "[!] place your aws api id and key in ~/.aws/credentials"

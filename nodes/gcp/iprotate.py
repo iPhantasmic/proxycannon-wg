@@ -66,7 +66,7 @@ def debug(msg):
 ########################################################################################################################
 # Handle SIGINT & Teardown
 ########################################################################################################################
-def cleanup():
+def cleanup(proxy=None, cannon=None):
     global exit_nodes
     global isRunning
     debug("\nSIGINT received, terminating IP rotation...")
@@ -86,7 +86,7 @@ def cleanup():
 
     # Destroy Managed Instance Group
     debug("Deleting exit-nodes Managed Instance Group...")
-    command = ["gcloud", "compute", "instance-groups", "managed", "delete", "--zone=" + ZONE, "exit-nodes"]
+    command = ["gcloud", "compute", "instance-groups", "managed", "delete", "--quiet", "--zone=" + ZONE, "exit-nodes"]
     completed_process = subprocess.run(command, capture_output=True)
     if completed_process.returncode != 0:
         error("Terminating instances failed because: " + completed_process.stderr.decode("utf-8")
@@ -149,9 +149,9 @@ else:
 
 # Check if loadb table is used
 result = subprocess.run(["ip", "rule"], stdout=subprocess.PIPE).stdout.decode("utf-8")
-if result.find("from 10.10.10.0/24 lookup loadb") == -1:
+if result.find("from 10.10.20.0/24 lookup loadb") == -1:
     warning("WireGuard subnet does not use loadb routing table!!! Adding now...")
-    os.system("sudo ip rule add from 10.10.10.0/24 table loadb")
+    os.system("sudo ip rule add from 10.10.20.0/24 table loadb")
     debug("Added ip rule!")
 else:
     success("loadb already used by WireGuard subnet!")
@@ -310,36 +310,37 @@ def delete_exit_nodes(nodes: list):
 
     success("Instances are terminating!")
 
-
-def add_routes(nodes: list):
-    """Updates ip route to utilise new Exit Nodes"""
-    global route_cmd
-
-    if len(route_cmd) == 0:
-        route_cmd = "sudo ip route add default proto static scope global table loadb "
-    else:
-        route_cmd = "sudo ip route replace default proto static scope global table loadb "
-
-    for node in nodes:
-        route_cmd += "nexthop via " + node["priv_ip"] + " weight 100 "
-
-    os.system(route_cmd)
-    debug("Command ran: \"" + route_cmd + "\"")
-
-
-def del_routes(nodes: list):
-    """Clears ip route for loadb table"""
-    global route_cmd
-
-    if len(route_cmd) == 0:
-        warning("Attempted route deletion with no last ran route_cmd.")
-    route_cmd = "sudo ip route del default proto static scope global table loadb "
-
-    for node in nodes:
-        route_cmd += "nexthop via " + node["priv_ip"] + " weight 100 "
-
-    os.system(route_cmd)
-    debug("Command ran: \"" + route_cmd + "\"")
+# TODO: Current route_cmd does not work due to GCP's use of a Virtual Gateway Router
+#  this prevents the "nexthop via" from working since the interface is not "connected" directly to the subnet
+# def add_routes(nodes: list):
+#     """Updates ip route to utilise new Exit Nodes"""
+#     global route_cmd
+#
+#     if len(route_cmd) == 0:
+#         route_cmd = "sudo ip route add default proto static scope global table loadb "
+#     else:
+#         route_cmd = "sudo ip route replace default proto static scope global table loadb "
+#
+#     for node in nodes:
+#         route_cmd += "nexthop via " + node["priv_ip"] + " weight 100 "
+#
+#     os.system(route_cmd)
+#     debug("Command ran: \"" + route_cmd + "\"")
+#
+#
+# def del_routes(nodes: list):
+#     """Clears ip route for loadb table"""
+#     global route_cmd
+#
+#     if len(route_cmd) == 0:
+#         warning("Attempted route deletion with no last ran route_cmd.")
+#     route_cmd = "sudo ip route del default proto static scope global table loadb "
+#
+#     for node in nodes:
+#         route_cmd += "nexthop via " + node["priv_ip"] + " weight 100 "
+#
+#     os.system(route_cmd)
+#     debug("Command ran: \"" + route_cmd + "\"")
 
 
 def main():
@@ -349,7 +350,7 @@ def main():
 
     create_instance_template()
     exit_nodes = create_instance_group(args.num_of_instances)
-    # add_routes(exit_nodes)
+    add_routes(exit_nodes)
 
     while True:
         if not isRunning:
@@ -361,8 +362,8 @@ def main():
         debug("Starting an IP rotation now!")
         new_exit_nodes = add_exit_nodes(args.num_of_instances, exit_nodes)
         # once new nodes ready (ensure minimal downtime):
-    #     del_routes(exit_nodes)
-    #     add_routes(new_exit_nodes)
+        del_routes(exit_nodes)
+        add_routes(new_exit_nodes)
         delete_exit_nodes(exit_nodes)
         exit_nodes = new_exit_nodes.copy()
         new_exit_nodes.clear()
